@@ -21,7 +21,7 @@ Tested on Telegram Desktop 7.4.2 (official builds); the Linux and universal PoCs
 
 ## Demo
 
-https://github.com/umbra2728/telegram-quickjs-rce/releases/download/demo/demo.mp4
+<video src="demo.mp4" controls muted width="600"></video>
 
 Calculator launched from the Telegram Desktop process on macOS arm64 (Telegram Desktop keeps running).
 
