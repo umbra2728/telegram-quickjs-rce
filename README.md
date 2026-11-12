@@ -1,17 +1,20 @@
 # telegram-quickjs-rce
 
-RCE in Telegram Desktop via bot widgets. Works on **Windows x64** and **macOS arm64**.
+RCE in Telegram Desktop via bot widgets. Works on **Windows x64**, **macOS arm64** and **Linux** (x64/arm64).
 
-Telegram Desktop 7.4.0–7.4.2 runs bot widgets in a sandbox powered by QuickJS. A use-after-free in the generator prologue ([quickjs-ng #1910](https://github.com/quickjs-ng/quickjs/issues/1910)) gives arbitrary read/write inside the widget sandbox. The PoC escapes the sandbox and launches the Calculator from the Telegram Desktop process.
+Telegram Desktop 7.4.0–7.4.2 runs bot widgets in a sandbox powered by QuickJS. A use-after-free in the generator prologue ([quickjs-ng #1910](https://github.com/quickjs-ng/quickjs/issues/1910)) gives arbitrary read/write inside the widget sandbox. The PoC escapes the sandbox and executes a command from the Telegram Desktop process.
 
-Both PoCs use the same UAF primitive, only the final call differs per OS:
+All PoCs use the same UAF primitive, only the final call differs per OS:
 
 | File | OS | Payload | SHA-256 |
 |---|---|---|---|
 | `poc-win.html` | Windows x64 | `WinExec` → `calc.exe` | `3e2cbc65f8dcb29e2ae78879554f72ad7f3bf48509467d43d60e1e2f346d3347` |
 | `poc-macos.html` | macOS arm64 | `system("open -a Calculator")` | `ac512ff672ac894ed074c126b1f331ae2d739ddf0dfcb6f37541ba78ecfd4f2b` |
+| `poc-linux.html` | Linux x64/arm64 | `system("touch /tmp/pwned")` | `a421bd4a2d1f8e7c47d888f64b160d77ecef57d19bedf8ba06866bd87d0a2337` |
 
-Tested on Telegram Desktop 7.4.2 (official builds, both platforms).
+The Linux PoC is a single file that works on both x64 and arm64: it resolves `system()` from libc via the dynamic linker structures (`DT_DEBUG` → `link_map` → GNU hash). After opening the message, `/tmp/pwned` appears on disk.
+
+Tested on Telegram Desktop 7.4.2 (official builds); the Linux PoC was verified in the widget-sandbox harness built with the same QuickJS pin (8f0d3b6) on Debian x64 and arm64.
 
 ## Demo
 
@@ -29,9 +32,9 @@ curl -s -X POST "https://api.telegram.org/bot<TOKEN>/sendWidget" \
   -d "$(python3 -c 'import json; print(json.dumps({"chat_id": <YOUR_ID>, "html": open("poc-win.html").read()}))')"
 ```
 
-When you open the message in the chat, the Calculator opens and Telegram Desktop keeps running.
+When you open the message in the chat, the command executes and Telegram Desktop keeps running.
 
 ## Credits
 
 - Original research and Windows PoC: [bikini/telejam](https://github.com/bikini/telejam)
-- macOS port: [@umbra2728](https://github.com/umbra2728)
+- macOS and Linux ports: [@umbra2728](https://github.com/umbra2728)
