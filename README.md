@@ -23,6 +23,8 @@ Tested on Telegram Desktop 7.4.2 (official builds); the Linux and universal PoCs
 
 <video src="demo.mp4" controls muted width="600"></video>
 
+![Demo GIF](demo.gif)
+
 Calculator launched from the Telegram Desktop process on macOS arm64 (Telegram Desktop keeps running).
 
 ## Usage
