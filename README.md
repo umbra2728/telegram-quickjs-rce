@@ -13,6 +13,12 @@ Both PoCs use the same UAF primitive, only the final call differs per OS:
 
 Tested on Telegram Desktop 7.4.2 (official builds, both platforms).
 
+## Demo
+
+<video src="demo.mp4" controls muted width="600"></video>
+
+Calculator launched from the Telegram Desktop process on macOS arm64 (Telegram Desktop keeps running).
+
 ## Usage
 
 Send the PoC to yourself as a widget via the Bot API (`sendWidget`), then open the chat in a vulnerable Telegram Desktop:
